@@ -1,0 +1,180 @@
+---
+title: "Predicting Weight Lifting Exercise Activities"
+author: "Mark Shocklee"
+date: "August 15, 2015"
+output: html_document
+---
+
+# Summary
+
+This project uses data from an activity tracker that collected information while the study participants performed unilateral dumbbell biceps curls both correctly and incorrectly.  This project will use machine learning algorithms to train a model to correctly classify whether the excercise was done correctly or followed one of four patterns of incorrect exercise movement.  The intent was to look at a variety of different machine learning algorithms. determine which one performed the best, and then use the best algorithm on a set of data where the outcome was not known.  The second algorithm chosen performed so well on the training and test dataset that the decision was made to proceed onto the unknown test dataset.
+
+This project was developed for the Practical Machine Learning class offered through Coursera by Johns Hopkins University.  Obain more information on JHU offerings at: <http://www.coursera.org/jhu>.
+
+```{r, echo=FALSE, message=FALSE}
+#The following packages were used previously in the class; loading thme in case
+#they are used.
+library(lattice)
+library(ggplot2)
+library(caret)
+library(pgmm)
+library(rpart)
+library(survival)
+library(splines)
+library(parallel)
+library(gbm)
+library(lubridate)
+library(zoo)
+library(timeDate)
+library(forecast)
+library(e1071)
+```
+# Data
+
+This project uses data obtained from the research of: Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.  More information available at: <http://groupware.les.inf.puc-rio.br/har#ixzz3itebA4EY>.
+
+The training data for this project are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>.
+
+The testing data for this project are available here: <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>.
+
+```{r, echo=FALSE}
+# Check to see if a data folder exists; if not then create one
+if (!file.exists("data")) {dir.create("data")}
+
+# Setup the variables for the URLs and file names
+#url1 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+#url2 <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+destfile1 <- "./data/pml-training.csv"
+destfile2 <- "./data/pml-testing.csv"
+
+# Download the files
+#download.file(url1, destfile = destfile1)
+#download.file(url2, destfile = destfile2)
+dateDownloaded <- date() #Sat Aug 15 08:57:58 2015
+```
+
+```{r, echo=TRUE}
+# Read the files 
+# Note:  Based upon looking at the summary of the data and doing some checks
+#        for NA and empty fields, we need to read this in a different way so
+#        that the NAs, empty, and blanks will all be considered NA.
+training = read.csv("./data/pml-training.csv", na.strings = c("NA", "", " "))
+testing = read.csv("./data/pml-testing.csv", na.strings = c("NA", "", " "))
+```
+
+The data for this project was downloaded from the URLs on Sat Aug 15 08:57:58 2015.
+
+The information that is being predicted is located in the classe variable.  The values and descriptions of this variable are listed in the table below.
+
+Class | Description
+------------- | -------------
+A | Exactly according to the specification
+B | Throwing the elbows to the front
+C | Lifting the dumbbell only halfway
+D | Lowering the dumbbell only halfway 
+E | Throwing the hips to the front
+
+# Data Cleaning
+
+```{r, echo=FALSE, results='hide'}
+### Exploratory data analysis:
+# Start by seeing what the data is like
+summary(training) #Seems like there are a lot of NAs in certain columns
+# Count the number of NAs in the columns
+training_NAs <- apply(training, 2, function(x) {sum(is.na(x))})
+testing_NAs <- apply(testing, 2, function(x) {sum(is.na(x))})
+table(training_NAs) 
+```
+
+The data files originally contained 160 variables.  There were 100 fields that were removed because the data they contained was not available, was empty or was blank.  The first 7 columns were also removed because they contained identifier information.  This left a total of 53 variables that were used in the analysis.
+
+```{r, echo=FALSE}
+# Remove the columns with all NAs
+training_cleaned <- training[, which(training_NAs == 0)]
+testing_cleaned <- testing[, which(testing_NAs == 0)]
+# Looks like the first 7 columns have identifier information
+training_cleaned <- training_cleaned[8:length(training_cleaned)]
+testing_cleaned <- testing_cleaned[8:length(testing_cleaned)]
+# Now down to 53 columns
+```
+
+# Data Analysis
+
+The training data was further seperated into a train and test set that would be used with the machine learning algorithms.  The former data frame (60%) will be used to train the machine learning algorithm, and the later (40%) will be used for cross validation.  A seed was also set to support reproducability.
+
+```{r, echo=TRUE}
+set.seed(1024)
+inTrain <- createDataPartition(y = training_cleaned$classe, 
+                               p = 0.6, 
+                               list = FALSE)
+train <- training_cleaned[inTrain, ]
+test <- training_cleaned[-inTrain, ]
+```
+
+At this point it would be appropriate to do some feature analysis.  The first check would be to determine if there are any near zero values.
+
+```{r, echo=TRUE}
+nearZeroVar(train, saveMetrics = TRUE) # Looks like everything is good
+```
+
+Also check for correlation between the variables to make sure there there is no overfitting.  
+
+```{r, echo=TRUE}
+Cor <- cor(train[, names(train) != "classe"])
+diag(Cor) <- 0 # Set correlation between variables and itself to zero
+which(Cor > 0.8, arr.ind = TRUE) # Which variables have Correlation > 0.8
+```
+
+# Machine Learning Trials
+
+At this point I did get a bit anxious and wanted to try out some of the algorithms against the data; I haven't yet figured out how to incorporate the information learned from the correlation check.  The first algorithm that was tried was a k-Nearest Neighbors algorithm, mainly because it seemed to run quickly.
+
+```{r, echo=TRUE, eval=TRUE}
+### KNN Model 1
+model1 <- train(classe ~ ., 
+                data = train, method = "knn")
+predict1 <- predict(model1, train)
+confusionMatrix(train$classe, predict1)
+```
+
+The next algorithm tried was Random Forests to see if I could get a little better results, even though I realize that this will take longer to process.  Based upon the favorable results, additional information was extracted about this model.
+
+```{r, echo=TRUE, eval=TRUE}
+### Random Forest Model 2
+model2 <- train(classe ~ ., 
+                data = train, method = "rf")
+predict2 <- predict(model2, train)
+confusionMatrix(train$classe, predict2)
+# Validate the model using the test data; looks like Random Forest is better
+predictT2 <- predict(model2, newdata = test)
+confusionMatrix(test$classe, predictT2)
+print(model2)
+plot(model2)
+```
+
+```{r, echo=FALSE, eval=FALSE}
+# Estimate variable importance
+importance <- varImp(model2, scale=FALSE)
+# summarize importance
+print(importance)
+# plot importance
+plot(importance)
+```
+
+Due to the extremely good accuracy by the Random Forest model when compared to the k-Nearest Neighbors, I took a chance and prepared the data for the submission.  I was worried that this model might be overfitting because of the results that I received when performing the variable correlation.  However, evaluation of each of these submission files resulted in a perfect prediction.  While I had planned on evaluating additional model, there didn't seem to be any reason to.
+
+```{r, echo=TRUE, eval=FALSE}
+# Perform the submission
+### Supplied Function
+## This will write out the file to be submitted for part 2
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+        }
+}
+predictFinal <- predict(model2, newdata = testing_cleaned)
+pml_write_files(as.character(predictFinal))
+```
