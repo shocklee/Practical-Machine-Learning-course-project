@@ -1,7 +1,7 @@
 ---
 title: "Predicting Weight Lifting Exercise Activities"
 author: "Mark Shocklee"
-date: "August 15, 2015"
+date: "August 22, 2015"
 output: html_document
 ---
 
@@ -87,7 +87,7 @@ testing_NAs <- apply(testing, 2, function(x) {sum(is.na(x))})
 table(training_NAs) 
 ```
 
-The data files originally contained 160 variables.  There were 100 fields that were removed because the data they contained was not available, was empty or was blank.  The first 7 columns were also removed because they contained identifier information.  This left a total of 53 variables that were used in the analysis.
+A summary was done against the training dataset (not shown to conserve space). The data files originally contained 160 variables.  There were 100 fields that were removed because the data they contained was not available, was empty or was blank.  The first 7 columns were also removed because they contained identifier information.  This left a total of 53 variables that were used in the analysis.
 
 ```{r, echo=FALSE}
 # Remove the columns with all NAs
@@ -128,41 +128,45 @@ which(Cor > 0.8, arr.ind = TRUE) # Which variables have Correlation > 0.8
 
 # Machine Learning Trials
 
-At this point I did get a bit anxious and wanted to try out some of the algorithms against the data; I haven't yet figured out how to incorporate the information learned from the correlation check.  The first algorithm that was tried was a k-Nearest Neighbors algorithm, mainly because it seemed to run quickly.
+At this point I did get a bit anxious and wanted to try out some of the algorithms against the data; I haven't yet figured out how to incorporate the information learned from the correlation check.  
+
+We are performing a classification problem, where we are trying to figure out which The type of problem is a classification  Machine Learning problem because we are trying to classify the excercise that is being performed.  The book "A First Course in Machine Learning" by Simon Rogers, Mark Girolami, CRC Press 2012, on page 183 suggested K-Nearest Neighbor and Support Vector Machine as good performers for classification problems, so the first algorithm that was tried was a K-Nearest Neighbors.
 
 ```{r, echo=TRUE, eval=TRUE}
 ### KNN Model 1
-model1 <- train(classe ~ ., 
+modelKNN <- train(classe ~ ., 
                 data = train, method = "knn")
-predict1 <- predict(model1, train)
-confusionMatrix(train$classe, predict1)
+predictKNN <- predict(modelKNN, train)
+confusionMatrix(train$classe, predictKNN)
 ```
 
 The next algorithm tried was Random Forests to see if I could get a little better results, even though I realize that this will take longer to process.  Based upon the favorable results, additional information was extracted about this model.
 
+At this point I want to record a record of the mistake I made.  I picked Random Forests because I had discovered a table in a reference in Google Books that suggested algorithms based upon the type of problem.  My mistake is that I didn't record the reference and after several hours of searching, I'm still unable to locate the reference.
+
 ```{r, echo=TRUE, eval=TRUE}
 ### Random Forest Model 2
-model2 <- train(classe ~ ., 
+modelRF <- train(classe ~ ., 
                 data = train, method = "rf")
-predict2 <- predict(model2, train)
-confusionMatrix(train$classe, predict2)
+predictRF <- predict(modelRF, train)
+confusionMatrix(train$classe, predictRF)
 # Validate the model using the test data; looks like Random Forest is better
-predictT2 <- predict(model2, newdata = test)
-confusionMatrix(test$classe, predictT2)
-print(model2)
-plot(model2)
+predictRF2 <- predict(modelRF, newdata = test)
+confusionMatrix(test$classe, predictRF2)
+print(modelRF)
+plot(modelRF)
 ```
 
 ```{r, echo=FALSE, eval=FALSE}
 # Estimate variable importance
-importance <- varImp(model2, scale=FALSE)
+importanceRF <- varImp(modelRF, scale=FALSE)
 # summarize importance
-print(importance)
+print(importanceRF)
 # plot importance
-plot(importance)
+plot(importanceRF)
 ```
 
-Due to the extremely good accuracy by the Random Forest model when compared to the k-Nearest Neighbors, I took a chance and prepared the data for the submission.  I was worried that this model might be overfitting because of the results that I received when performing the variable correlation.  However, evaluation of each of these submission files resulted in a perfect prediction.  While I had planned on evaluating additional model, there didn't seem to be any reason to.
+Due to the extremely good accuracy by the Random Forest(1) model when compared to the k-Nearest Neighbors(0.9462), I can easily conclude that the Random Forest was overfitting.  Still I decided to see how the Random Forest model did against the test dataset, which yielded an accuracy of 0.9911.  I decided to take a chance and run the model against the testing dataset (true unknown) and prepare it for submission. Evaluation of each of these submission files resulted in a perfect prediction.  While I had planned on evaluating additional model, there didn't seem to be any reason to.
 
 ```{r, echo=TRUE, eval=FALSE}
 # Perform the submission
@@ -175,6 +179,8 @@ pml_write_files = function(x){
                 write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
         }
 }
-predictFinal <- predict(model2, newdata = testing_cleaned)
+predictFinal <- predict(modelRF, newdata = testing_cleaned)
 pml_write_files(as.character(predictFinal))
 ```
+
+When I have spare time, I would still like to evaluate additional algorithms to see how they perform, for additional practice is setting up models/using the caret package, and to actually make use of the variable correlation information.
